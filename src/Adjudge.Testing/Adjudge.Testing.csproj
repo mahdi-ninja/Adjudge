@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Adjudge.Testing</RootNamespace>
+    <Description>Fakes and answer factories for testing code that depends on Adjudge decisions, with no network.</Description>
+    <PackageTags>adjudge testing fakes</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Adjudge.Abstractions/Adjudge.Abstractions.csproj" />
+    <ProjectReference Include="../Adjudge/Adjudge.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Adjudge.Testing.Tests" />
+  </ItemGroup>
+
+</Project>

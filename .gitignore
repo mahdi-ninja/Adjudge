@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+.idea/
+*.user
+TestResults/
+artifacts/
+.DS_Store
+*.trx
+coverage.*
+
+.env
+.env.*

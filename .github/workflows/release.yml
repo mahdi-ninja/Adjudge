@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - run: dotnet restore
+
+      - run: dotnet build -c Release --no-restore
+
+      - run: dotnet test -c Release --no-build --report-trx --results-directory ./TestResults --coverage --coverage-output-format cobertura
+
+      - run: dotnet pack -c Release --no-build -o ./artifacts
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages
+          path: ./artifacts/*.nupkg
+
+      # Trusted Publishing: the key this mints is valid for one hour, so log in
+      # immediately before the push.
+      - uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      # Pushing the .nupkg also uploads the matching .snupkg from the same folder.
+      - run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.nuget.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

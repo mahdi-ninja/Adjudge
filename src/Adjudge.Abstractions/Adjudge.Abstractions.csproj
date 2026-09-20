@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Answer types, results and the provider contract for Adjudge. Reference this to implement a provider or to consume typed decisions without the engine.</Description>
+    <PackageTags>decisions probability classification confidence abstractions</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Adjudge" />
+    <InternalsVisibleTo Include="Adjudge.Testing" />
+    <InternalsVisibleTo Include="Adjudge.Tests" />
+  </ItemGroup>
+
+</Project>
