@@ -6,19 +6,21 @@ No prompts, no JSON, no thresholds, no model names. Questions are closed-set by 
 an enum, rate against ordered levels, or assert a proposition), so the probabilities stay meaningful.
 Providers plug in behind one small interface. Jev is the first one.
 
-Jev is the first provider, and it lands in this commit.
+Every piece is in place: the abstractions, the engine, the Jev provider and the fakes you test with.
 
 ## Why
 
 - Answers are typed values (`Classification<T>`, `Rating<T>`, `Assertion`), not JSON you parse yourself.
 - The library computes confidence itself, so it means the same thing for every provider, and you can still see where it came from.
 - Rubrics live with the enum they describe, so the wording a provider sees is version-controlled alongside the options.
+- You can test any decision without a network, using the fake provider in `Adjudge.Testing`.
 
 ## Install
 
 ```
 dotnet add package Adjudge
 dotnet add package Adjudge.Jev
+dotnet add package Adjudge.Testing
 ```
 
 It's not on NuGet yet, so for now reference the projects directly.
@@ -150,6 +152,43 @@ new DecisionEngine(provider, new DecisionEngineOptions(), ContextSerializer.From
 
 `services.AddAdjudge(ContextSerializer.From(AppJsonContext.Default))` does the same under dependency
 injection.
+
+## Testing
+
+Script a provider and run the real decision:
+
+```csharp
+var provider = new FakeDecisionProvider()
+    .Classify("intent", nameof(TicketIntent.Billing), 0.92)
+    .Rate("urgency", nameof(Urgency.High), 0.7)
+    .Assert("abusive", 0.1)
+    .WithModel("fake-1");
+
+var decision = new DecisionEngine(provider).Create(new TicketTriageDecision());
+var result = await decision.DecideAsync(new TicketContext("I was charged twice", "4471"), ct);
+
+result.Value.Intent.Value.ShouldBe(TicketIntent.Billing);
+provider.LastRequest!.Questions.Count.ShouldBe(3);
+```
+
+Questions are named after the result member, lower-cased, so `Intent` is scripted as `intent`.
+Anything you leave unscripted comes back uniform, or throws if you construct the provider with
+`UnscriptedBehaviour.Throw`. `Throws` and `AlwaysThrows` cover the failure paths.
+
+Or skip the engine entirely and fake the decision:
+
+```csharp
+var triage = new FakeDecision<TicketContext, TicketTriage>()
+    .Returns(new TicketTriage(
+        Answers.Classification(TicketIntent.Billing, 0.9),
+        Answers.Rating(Urgency.High),
+        Answers.Assertion(0.1)));
+
+var routing = await new TicketService(triage).RouteAsync(new TicketContext("...", null), ct);
+```
+
+`Answers` builds each answer kind from a top option or level and a confidence, so a test says what it
+means without hand-rolling a distribution.
 
 ## Concepts
 
