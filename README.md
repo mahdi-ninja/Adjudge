@@ -6,8 +6,7 @@ No prompts, no JSON, no thresholds, no model names. Questions are closed-set by 
 an enum, rate against ordered levels, or assert a proposition), so the probabilities stay meaningful.
 Providers plug in behind one small interface. Jev is the first one.
 
-The builder, the engine and the DI registration are in. No provider ships yet, so for now you bring
-your own implementation of `IDecisionProvider`.
+Jev is the first provider, and it lands in this commit.
 
 ## Why
 
@@ -19,6 +18,7 @@ your own implementation of `IDecisionProvider`.
 
 ```
 dotnet add package Adjudge
+dotnet add package Adjudge.Jev
 ```
 
 It's not on NuGet yet, so for now reference the projects directly.
@@ -122,10 +122,20 @@ public sealed class TicketService(IDecision<TicketContext, TicketTriage> triage)
 }
 ```
 
-Building the engine takes a provider, and none ships yet, so use your own:
+Registration with dependency injection:
 
 ```csharp
-var engine = new DecisionEngine(new MyProvider());
+services
+    .AddAdjudge()
+    .AddJev()
+    .AddDecision<TicketTriageDecision, TicketContext, TicketTriage>();
+```
+
+Or without a container:
+
+```csharp
+var provider = new JevProvider(new JevOptions());
+var engine = new DecisionEngine(provider);
 IDecision<TicketContext, TicketTriage> triage = engine.Create(new TicketTriageDecision());
 ```
 
@@ -140,15 +150,6 @@ new DecisionEngine(provider, new DecisionEngineOptions(), ContextSerializer.From
 
 `services.AddAdjudge(ContextSerializer.From(AppJsonContext.Default))` does the same under dependency
 injection.
-
-Registration with dependency injection does the same thing:
-
-```csharp
-services
-    .AddAdjudge()
-    .UseProvider<MyProvider>()
-    .AddDecision<TicketTriageDecision, TicketContext, TicketTriage>();
-```
 
 ## Concepts
 
@@ -193,6 +194,26 @@ question, plus the model and usage. `Capabilities` says which question kinds a p
 so the engine checks `Capabilities` against the definition before it calls, and does the typing and
 confidence work itself. A provider only has to translate shapes. Register yours with
 `services.AddAdjudge().UseProvider<MyProvider>()`.
+
+## Configuration
+
+Jev reads these environment variables when the matching option is not set:
+
+| Variable | Option | Default |
+|---|---|---|
+| `TYPESAFE_API_KEY` | `JevOptions.ApiKey` | required |
+| `TYPESAFE_BASE_URL` | `JevOptions.BaseUrl` | `https://api.typesafe.ai` |
+| `TYPESAFE_DEFAULT_MODEL` | `JevOptions.Model` | `jev-latest` |
+
+`JevOptions.Timeout` defaults to 10 seconds and `JevOptions.MaxRetries` to 2. Retries cover 408, 429
+and 5xx responses, with jittered backoff, and they honour `Retry-After`. Set them in code:
+
+```csharp
+services.AddAdjudge().AddJev(o => o.Timeout = TimeSpan.FromSeconds(20));
+```
+
+A failed call throws `JevException`, which carries `StatusCode`, `IsTransient`, `RetryAfter`,
+`RequestId` and `ResponseBody`.
 
 ## Telemetry
 
