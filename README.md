@@ -6,8 +6,6 @@ No prompts, no JSON, no thresholds, no model names. Questions are closed-set by 
 an enum, rate against ordered levels, or assert a proposition), so the probabilities stay meaningful.
 Providers plug in behind one small interface. Jev is the first one.
 
-Every piece is in place: the abstractions, the engine, the Jev provider and the fakes you test with.
-
 ## Why
 
 - Answers are typed values (`Classification<T>`, `Rating<T>`, `Assertion`), not JSON you parse yourself.
@@ -24,18 +22,6 @@ dotnet add package Adjudge.Testing
 ```
 
 It's not on NuGet yet, so for now reference the projects directly.
-
-## Layout
-
-| Project | What goes in it |
-|---|---|
-| `src/Adjudge.Abstractions` | The types a call site and a provider both see: answers, results, the provider contract |
-| `src/Adjudge` | The decision builder, the engine and the DI registration |
-| `src/Adjudge.Jev` | The Jev provider |
-| `src/Adjudge.Testing` | Fakes, so a decision can be tested without a network |
-| `samples/Adjudge.Sample.Minimal` | Engine and provider with no container |
-| `samples/Adjudge.Sample.Hosted` | The same decision inside the Generic Host |
-| `tests/*` | One test project per source project, plus Jev integration tests |
 
 ## Quick start
 
@@ -136,7 +122,7 @@ services
 Or without a container:
 
 ```csharp
-var provider = new JevProvider(new JevOptions());
+var provider = new JevProvider(new JevOptions { ApiKey = apiKey });
 var engine = new DecisionEngine(provider);
 IDecision<TicketContext, TicketTriage> triage = engine.Create(new TicketTriageDecision());
 ```
@@ -152,6 +138,8 @@ new DecisionEngine(provider, new DecisionEngineOptions(), ContextSerializer.From
 
 `services.AddAdjudge(ContextSerializer.From(AppJsonContext.Default))` does the same under dependency
 injection.
+
+There's a runnable version of the quick start in `samples/Adjudge.Sample.Minimal`, and the same decision registered in a host in `samples/Adjudge.Sample.Hosted`.
 
 ## Testing
 
@@ -171,10 +159,6 @@ result.Value.Intent.Value.ShouldBe(TicketIntent.Billing);
 provider.LastRequest!.Questions.Count.ShouldBe(3);
 ```
 
-Questions are named after the result member, lower-cased, so `Intent` is scripted as `intent`.
-Anything you leave unscripted comes back uniform, or throws if you construct the provider with
-`UnscriptedBehaviour.Throw`. `Throws` and `AlwaysThrows` cover the failure paths.
-
 Or skip the engine entirely and fake the decision:
 
 ```csharp
@@ -187,36 +171,9 @@ var triage = new FakeDecision<TicketContext, TicketTriage>()
 var routing = await new TicketService(triage).RouteAsync(new TicketContext("...", null), ct);
 ```
 
-`Answers` builds each answer kind from a top option or level and a confidence, so a test says what it
-means without hand-rolling a distribution.
-
-## Concepts
-
-Three kinds of question, three kinds of answer:
-
-| Kind | Question | Answer |
-|---|---|---|
-| Classify | pick one option from an enum | `Classification<T>`: `Value`, `Distribution`, `Confidence` |
-| Rate | place the context on an ordered enum | `Rating<T>`: `Value` (fractional position), `Nearest`, `Distribution`, `Confidence` |
-| Assert | a yes or no proposition | `Assertion`: `Probability` |
-
-Options and levels are enum members, and the wording that describes them sits on the member with
-`[Option]` or `[Level]`, as in the quick start above.
-
-A member with no attribute falls back to its name. Members are ordered by ascending underlying value
-everywhere, which is what makes `Rate` positions and tie-breaks predictable.
-
-`Distribution<T>` normalises the probabilities it is given, covers every member of the enum, and
-works out `Top`, `Margin` and a `Confidence` from the spread. `Confidence` itself carries a `Value`,
-a `ConfidenceSource` (`Derived`, `Native`, `Sampled` or `Heuristic`) and the provider's own number in
-`ProviderReported` when there is one, so a call site can tell a derived figure from a reported one.
-
-Every evaluation returns a `DecisionResult<TResult>` with an `Id`, the `DefinitionId`, the provider
-name, the model, the typed `Value`, `Usage` and a timestamp.
-
 ## Providers
 
-Anything implementing `IDecisionProvider` will plug into the engine:
+Anything implementing `IDecisionProvider` plugs into the engine:
 
 ```csharp
 public interface IDecisionProvider
@@ -227,11 +184,10 @@ public interface IDecisionProvider
 }
 ```
 
-A `ProviderRequest` carries the serialised `DecisionContext` and the `QuestionSpec` list
-(`ClassifySpec`, `RateSpec`, `AssertSpec`). A `ProviderResponse` carries one `AnswerSpec` per
-question, plus the model and usage. `Capabilities` says which question kinds a provider can handle,
-so the engine checks `Capabilities` against the definition before it calls, and does the typing and
-confidence work itself. A provider only has to translate shapes. Register yours with
+A `ProviderRequest` carries the serialised `DecisionContext` and the `QuestionSpec` list. A
+`ProviderResponse` carries one `AnswerSpec` per question, plus the model and usage. The engine checks
+`Capabilities` against the definition before it calls, and does the typing and confidence work itself,
+so a provider only has to translate shapes. Register your own with
 `services.AddAdjudge().UseProvider<MyProvider>()`.
 
 ## Configuration
@@ -264,15 +220,6 @@ the provider and the model, and marked as an error when the call fails. The `Adj
 - `adjudge.confidence`, a histogram tagged by definition id, question and provider
 
 Turn the lot off with `services.AddAdjudge(o => o.EnableTelemetry = false)`.
-
-## Building
-
-```
-dotnet build
-dotnet test
-```
-
-CI runs the same two commands on every push.
 
 ## Design
 
