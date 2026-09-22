@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Adjudge.Sample.Cascade</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Adjudge/Adjudge.csproj" />
+    <ProjectReference Include="../../src/Adjudge.Jev/Adjudge.Jev.csproj" />
+    <ProjectReference Include="../../src/Adjudge.OpenAI/Adjudge.OpenAI.csproj" />
+  </ItemGroup>
+
+</Project>

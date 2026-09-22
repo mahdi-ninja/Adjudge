@@ -140,7 +140,7 @@ new DecisionEngine(provider, new DecisionEngineOptions(), ContextSerializer.From
 `services.AddAdjudge(ContextSerializer.From(AppJsonContext.Default))` does the same under dependency
 injection.
 
-There's a runnable version of the quick start in `samples/Adjudge.Sample.Minimal`, the same decision registered in a host in `samples/Adjudge.Sample.Hosted`, and the same decision against an OpenAI-compatible endpoint in `samples/Adjudge.Sample.OpenAI`.
+There's a runnable version of the quick start in `samples/Adjudge.Sample.Minimal`, the same decision registered in a host in `samples/Adjudge.Sample.Hosted`, the same decision against an OpenAI-compatible endpoint in `samples/Adjudge.Sample.OpenAI`, and the same decision behind a rules, Jev and OpenAI cascade in `samples/Adjudge.Sample.Cascade`.
 
 ## Testing
 
@@ -207,6 +207,72 @@ Labels are read leniently. Everything before the first letter or digit is stripp
 follows is the label, so `**A**`, `- A`, `(A)`, `` `A` `` and `"yes"` all parse. A sampled reply is
 split into words and the first word that is an offered label wins, so `Answer: A` parses too, at the
 price of reading `A customer wants billing` as `A`.
+
+## Composing providers
+
+Providers do not have to be picked one at a time. `CascadeProvider` puts each question to a list of
+stages in order, so the cheap ones answer what they can and only the hard questions reach the expensive
+model:
+
+```csharp
+var cascade = new CascadeProvider(
+    new CascadeStage(rules),
+    new CascadeStage(new JevProvider(new JevOptions()), AcceptWhen.ConfidenceAtLeast(0.7)),
+    new CascadeStage(new OpenAIProvider(new OpenAIOptions())));
+```
+
+Fall-through is per question, not per request. A stage is asked only the questions that are still open
+and that its capabilities cover, and its answer stands only if the stage's `AcceptAnswer` accepts it,
+so anything below the 0.7 floor above carries on to the next stage. The last stage is authoritative:
+its answers stand whatever its own rule says, and a question still open after it is an error, which is
+why the constructor insists the last stage can answer every kind an earlier one can.
+
+The result metadata says where each answer came from. `question.{name}.provider` names the provider
+that answered that question and `question.{name}.stage` its index, `stages.called` counts the stages
+that ran, and each stage's own metadata is carried under a `stage.{index}.` prefix.
+
+Under dependency injection, `UseCascade` registers the cascade as the engine's provider:
+
+```csharp
+services
+    .AddAdjudge()
+    .AddJev()
+    .AddOpenAI()
+    .UseCascade(c => c
+        .Stage(rules)
+        .Stage<JevProvider>(AcceptWhen.ConfidenceAtLeast(0.7))
+        .Stage<OpenAIProvider>())
+    .AddDecision<TicketTriageDecision, TicketContext, TicketTriage>();
+```
+
+Order does not much matter here, because `UseCascade` drops every `IDecisionProvider` registered before
+it and `AddJev` and `AddOpenAI` register theirs with `TryAdd`, so whichever way round you write them the
+cascade ends up as the provider the engine calls, while the concrete `JevProvider` and `OpenAIProvider`
+registrations stay put for `Stage<TProvider>()` to resolve.
+
+### Rules
+
+`RulesProvider<TContext>` answers from predicates you write in C# against your own context, so the cases
+you already know the answer to never cost a call:
+
+```csharp
+var rules = RulesProvider.Create<TicketContext>(r => r
+    .Classify<TicketIntent>("intent", c => c
+        .When(TicketIntent.Billing, ctx => ctx.Message.Contains("refund", StringComparison.OrdinalIgnoreCase))
+        .When(TicketIntent.OrderTracking, ctx => ctx.Message.Contains("where is my order", StringComparison.OrdinalIgnoreCase)))
+    .Assert("abusive", ctx => ctx.Message.Contains("clowns", StringComparison.OrdinalIgnoreCase)));
+```
+
+These are developer-owned predicates in ordinary code, not an auditable business rules engine. A rule
+that settles a question puts all the mass on one option and marks the confidence as `Heuristic`. When no
+rule matches, or when several match and contradict each other, the question is declined and left out of
+the response, which is why a rules provider is meant to sit at the front of a cascade rather than be
+handed to the engine on its own. There is no `Rate`, because an ordinal judgement is not something a
+keyword predicate can make honestly.
+
+The ordering to reach for is rules, then Jev, then a chat model. Jev is the cheap, fast, calibrated
+stage that should answer most of what the rules leave, and the chat model is the expensive last resort
+that only sees what Jev was not confident enough about.
 
 ## Configuration
 
