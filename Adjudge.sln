@@ -35,6 +35,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Adjudge.OpenAI.Tests", "tes
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Adjudge.OpenAI.IntegrationTests", "tests\Adjudge.OpenAI.IntegrationTests\Adjudge.OpenAI.IntegrationTests.csproj", "{D75192B1-530F-4439-B01E-FA77DC6FE6B5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Adjudge.Sample.OpenAI", "samples\Adjudge.Sample.OpenAI\Adjudge.Sample.OpenAI.csproj", "{7A9274DD-1A28-4709-B42C-CB205CC32DA1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -201,6 +203,18 @@ Global
 		{D75192B1-530F-4439-B01E-FA77DC6FE6B5}.Release|x64.Build.0 = Release|Any CPU
 		{D75192B1-530F-4439-B01E-FA77DC6FE6B5}.Release|x86.ActiveCfg = Release|Any CPU
 		{D75192B1-530F-4439-B01E-FA77DC6FE6B5}.Release|x86.Build.0 = Release|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Debug|x64.Build.0 = Debug|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Debug|x86.Build.0 = Debug|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Release|x64.ActiveCfg = Release|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Release|x64.Build.0 = Release|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Release|x86.ActiveCfg = Release|Any CPU
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -219,5 +233,6 @@ Global
 		{AFACD42D-4E5E-404F-A629-EBE78942E4DE} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{CC6F2AC0-8F57-4973-984C-12D833868014} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{D75192B1-530F-4439-B01E-FA77DC6FE6B5} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{7A9274DD-1A28-4709-B42C-CB205CC32DA1} = {5D20AA90-6969-D8BD-9DCD-8634F4692FDA}
 	EndGlobalSection
 EndGlobal

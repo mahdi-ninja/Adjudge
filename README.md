@@ -140,7 +140,7 @@ new DecisionEngine(provider, new DecisionEngineOptions(), ContextSerializer.From
 `services.AddAdjudge(ContextSerializer.From(AppJsonContext.Default))` does the same under dependency
 injection.
 
-There's a runnable version of the quick start in `samples/Adjudge.Sample.Minimal`, and the same decision registered in a host in `samples/Adjudge.Sample.Hosted`.
+There's a runnable version of the quick start in `samples/Adjudge.Sample.Minimal`, the same decision registered in a host in `samples/Adjudge.Sample.Hosted`, and the same decision against an OpenAI-compatible endpoint in `samples/Adjudge.Sample.OpenAI`.
 
 ## Testing
 
