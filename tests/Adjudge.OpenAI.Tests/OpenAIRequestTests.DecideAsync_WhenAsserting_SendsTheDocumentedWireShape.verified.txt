@@ -1,0 +1,23 @@
+﻿{
+  Parameters:
+{
+  "temperature": 0,
+  "top_logprobs": 5,
+  "model": "gpt-4o-mini",
+  "max_completion_tokens": 4,
+  "logprobs": true
+},
+  User:
+Question: Is the message abusive?
+
+Answers:
+yes = Insults or threats
+no = Frustrated but civil
+
+State:
+```json
+{"subject":"charged twice","body":"please help"}
+```
+
+Reply with exactly one label: yes, no.
+}

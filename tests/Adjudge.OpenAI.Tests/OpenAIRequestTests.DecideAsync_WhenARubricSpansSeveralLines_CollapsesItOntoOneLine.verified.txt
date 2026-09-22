@@ -1,0 +1,25 @@
+﻿{
+  Parameters:
+{
+  "temperature": 0,
+  "top_logprobs": 5,
+  "model": "gpt-4o-mini",
+  "max_completion_tokens": 4,
+  "logprobs": true
+},
+  User:
+Question: What does the customer want?
+
+Options:
+A = Charges, invoices and refunds
+B = Sending something back
+    Not for: Billing questions
+    Examples: Wrong size
+
+State:
+```json
+{"subject":"charged twice","body":"please help"}
+```
+
+Reply with exactly one label: A, B.
+}

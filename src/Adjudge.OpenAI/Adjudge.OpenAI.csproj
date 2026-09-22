@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Adjudge.OpenAI</RootNamespace>
+    <Description>OpenAI-compatible chat provider for Adjudge, with confidence from token log probabilities or repeated sampling. Works with OpenAI, Azure OpenAI and local OpenAI-compatible servers.</Description>
+    <PackageTags>adjudge openai azure-openai provider decisions llm</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="OpenAI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Adjudge.Abstractions/Adjudge.Abstractions.csproj" />
+    <ProjectReference Include="../Adjudge/Adjudge.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Adjudge.OpenAI.Tests" />
+    <InternalsVisibleTo Include="Adjudge.OpenAI.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

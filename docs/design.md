@@ -2,7 +2,7 @@
 
 Adjudge is a .NET library for making typed, probabilistic decisions from application code.
 You supply a context (the facts) and get back typed answers with probability distributions
-and confidence. Providers (Jev, fakes, later other providers) translate between the
+and confidence. Providers (Jev, OpenAI, fakes, later other providers) translate between the
 library's question model and their own API. Application code never sees a provider.
 
 ## Goals
@@ -233,6 +233,85 @@ DI: `services.AddAdjudge(o => ...)` registers the engine and returns a builder;
 - Limits enforced client-side with `DecisionDefinitionException`: 2 to 10 levels for Rate, at most 255 options for Classify.
 - DI: `.AddJev(Action<JevOptions>)` using `IHttpClientFactory`, on either `IServiceCollection` or the `IAdjudgeBuilder` that `AddAdjudge` returns. Options are validated at startup.
 
+## OpenAI provider (Adjudge.OpenAI)
+
+Talks to any OpenAI-compatible Chat Completions endpoint: openai.com, Azure OpenAI v1
+(`https://<resource>.services.ai.azure.com/openai/v1`, where bearer auth works), Ollama, vLLM and the
+rest. It is built on the official `OpenAI` NuGet package, with the SDK's own retry policy disabled so
+the one `Microsoft.Extensions.Http.Resilience` pipeline the library already uses stays in charge.
+
+- Options: `ApiKey` (falls back to `OPENAI_API_KEY`), `BaseUrl` (`OPENAI_BASE_URL`, default
+  `https://api.openai.com/v1`, and the version segment is part of it), `Model` (`OPENAI_MODEL`, no
+  default because no two endpoints host the same set). A missing key or a missing model throws
+  `OpenAIException` before any HTTP call, and so does an `OPENAI_BASE_URL` that is not an absolute URL,
+  with the variable named in the message. `Timeout` defaults to 10 seconds, `MaxRetries` to 2 and
+  `MaxConcurrentCalls` to 4. `Strategy` picks `LogProbabilities` or `Sampling`, `TopLogProbabilities`
+  defaults to 5 and `Temperature` is a nullable float defaulting to 0.
+- Options are validated by `IValidateOptions<OpenAIOptions>` at startup under dependency injection, and
+  the constructor that takes an `OpenAIOptions` directly runs the same rules and throws a non-transient
+  `OpenAIException` carrying the failures, so neither route can send an option the service will reject.
+- Capabilities: Classify | Rate | Assert. Not `Batch`: one chat call answers one question, and the
+  questions in a request run concurrently up to `MaxConcurrentCalls`, honouring the cancellation
+  token. Not `NativeConfidence`: every answer reports `null`, so the engine derives confidence itself
+  and `ConfidenceSource` is `Derived`.
+- Prompt: a system message saying the model is a classifier that answers with a single label and
+  nothing else, and a user message ordered question, options, state, label line. The state JSON is
+  fenced as ```` ```json ```` under a `State:` heading and the instruction to reply with exactly one
+  label is the last thing the model reads. Rubrics render as their text when they are a `string`, and
+  as the description plus `Not for: ...` and `Examples: ...` lines when they are an `OptionRubric`.
+  `TrueMeans` and `FalseMeans` render as the `yes` and `no` lines when the definition supplied them.
+  Rubric text and the true and false meanings have their whitespace collapsed to single spaces, so a
+  multi-line rubric still renders as one line per label.
+- Labels are single tokens, so that first-token log probabilities are meaningful. Classify options are
+  labelled `A`, `B`, `C` and so on in the order they were declared, which caps a classification at 26
+  options; more throws `DecisionDefinitionException` at request time. Rate levels are labelled `0` to
+  `9` in order, so 2 to 10 levels. Assert uses `yes` and `no`.
+- Label parsing strips everything before the first letter or digit and then takes the run of letters
+  and digits that follows, so `**A**`, `- A`, `(A)`, `` `A` `` and `"yes"` all parse. A log probability
+  token is matched that way on its own; a sample is split into whitespace and punctuation delimited
+  words and the first word that is an offered label wins, case-insensitively, so `Answer: A` parses.
+  A sample that opens with a bare label, as `A customer wants billing` does, is therefore read as that
+  label, which is the price of accepting the models that answer in a sentence.
+- `ConfidenceStrategy.LogProbabilities` (the default): one call with `max_completion_tokens` 4,
+  `top_logprobs` from `TopLogProbabilities` and `temperature` from `Temperature`. The default of 5 is
+  the ceiling Azure OpenAI accepts on its v1 endpoint, which rejects anything higher with a
+  non-transient 400; openai.com allows up to 20, so the option is validated over 1 to 20 and raising it
+  is a per-endpoint choice. `Temperature` is a nullable float: null omits the parameter altogether, for
+  the models that reject it. The first content token that is not whitespace is the answer token, so a
+  leading newline or space does not cost the answer. Its top log probabilities are trimmed and
+  case-normalised, matched against the labels that were offered, turned into `exp(logprob)` and
+  renormalised over the labels that matched. The chosen token is folded in when the endpoint left it
+  out of its own top list. No match at all is a `ProviderResponseException` carrying the raw content,
+  and so is a response with no content log probabilities: when its finish reason is `length`, the
+  message says the token budget was consumed before an answer, which is what a reasoning model does,
+  and suggests `Sampling` or a different model. These are token probabilities, not a calibrated
+  distribution over the option set.
+- `ConfidenceStrategy.Sampling`: `Samples` calls (default 5, minimum 2) at `SamplingTemperature`
+  (default 1.0) with `max_completion_tokens` 4 and no log probabilities. Each reply's first label is
+  parsed and the probabilities are the counts over the samples that parsed. Unparseable samples are
+  ignored; all of them unparseable is a `ProviderResponseException`. Samples share the same
+  concurrency limit as questions.
+- Assert answers are computed from the raw masses rather than from the renormalised distribution:
+  `yes / (yes + no)` when both answers are present, and when only one is, the residual stands in for
+  the other, `yes / (yes + max(0, 1 - yes))` or its mirror. The result is clamped to 0.001 to 0.999, so
+  a single dominant token never reads as certainty.
+- Response mapping: `ClassifyAnswerSpec` keyed by option key, `RateAnswerSpec` keyed by level key
+  (labels map back by position), `AssertAnswerSpec` with the yes probability. `Model` comes from the
+  completion, `Usage` is summed across every call and is null when no completion reported any, and
+  `Metadata` carries `strategy` (`log_probabilities` or `sampling`) and `calls`. A question that fails
+  propagates its exception and the evaluation fails with it, so the usage the completed calls reported
+  is not reported at all.
+- Errors: one `OpenAIException : ProviderException` carrying `StatusCode`, `IsTransient`, `RetryAfter`,
+  `RequestId` (from `x-request-id`) and `ResponseBody`, mapped from the SDK's `ClientResultException`.
+  408, 429 and 5xx are transient, 429 parsing `Retry-After`; every other status, including 400, 401,
+  403 and 422, is not. Transport failures and timeouts are transient with no status. A cancelled token
+  is never dressed up as a provider failure: the mapping is skipped once cancellation is requested, so
+  `OperationCanceledException` reaches the caller.
+- HTTP is injected through `OpenAIClientOptions.Transport`, so dependency injection supplies an
+  `IHttpClientFactory` client named `Adjudge.OpenAI` and tests supply a recording handler.
+- DI: `.AddOpenAI(Action<OpenAIOptions>)` on either `IServiceCollection` or the `IAdjudgeBuilder` that
+  `AddAdjudge` returns.
+
 ## Testing package (Adjudge.Testing)
 
 - `FakeDecisionProvider`: scripted per question name (`.Classify("intent", top: "Billing", confidence: 0.9)` or full probabilities), records every `ProviderRequest`, can throw on demand, supports a default answer strategy (uniform) for unscripted questions.
@@ -250,10 +329,13 @@ global.json                  .NET 10 SDK
 src/Adjudge.Abstractions
 src/Adjudge
 src/Adjudge.Jev
+src/Adjudge.OpenAI
 src/Adjudge.Testing
 tests/Adjudge.Tests
 tests/Adjudge.Jev.Tests
 tests/Adjudge.Jev.IntegrationTests   skipped unless TYPESAFE_API_KEY is set
+tests/Adjudge.OpenAI.Tests
+tests/Adjudge.OpenAI.IntegrationTests   skipped unless OPENAI_API_KEY, OPENAI_BASE_URL and OPENAI_MODEL are set
 tests/Adjudge.Testing.Tests
 samples/Adjudge.Sample.Minimal
 samples/Adjudge.Sample.Hosted

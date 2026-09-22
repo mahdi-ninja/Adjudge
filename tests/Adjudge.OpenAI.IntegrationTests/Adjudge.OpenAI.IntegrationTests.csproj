@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Adjudge.OpenAI.IntegrationTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Adjudge.OpenAI/Adjudge.OpenAI.csproj" />
+  </ItemGroup>
+
+</Project>

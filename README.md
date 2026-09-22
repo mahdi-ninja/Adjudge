@@ -4,7 +4,7 @@ Adjudge is a .NET library for typed, probabilistic decisions made from applicati
 a context and get back typed answers carrying probability distributions and calibrated confidence.
 No prompts, no JSON, no thresholds, no model names. Questions are closed-set by design (classify over
 an enum, rate against ordered levels, or assert a proposition), so the probabilities stay meaningful.
-Providers plug in behind one small interface. Jev is the first one.
+Providers plug in behind one small interface, and Jev and any OpenAI-compatible endpoint are built in.
 
 ## Why
 
@@ -18,6 +18,7 @@ Providers plug in behind one small interface. Jev is the first one.
 ```
 dotnet add package Adjudge
 dotnet add package Adjudge.Jev
+dotnet add package Adjudge.OpenAI
 dotnet add package Adjudge.Testing
 ```
 
@@ -190,15 +191,35 @@ A `ProviderRequest` carries the serialised `DecisionContext` and the `QuestionSp
 so a provider only has to translate shapes. Register your own with
 `services.AddAdjudge().UseProvider<MyProvider>()`.
 
+### Built in
+
+| Package | Provider | Registration | Without a container |
+|---|---|---|---|
+| `Adjudge.Jev` | Jev, which answers every question in one call and reports its own confidence | `services.AddAdjudge().AddJev()` | `new JevProvider(new JevOptions())` |
+| `Adjudge.OpenAI` | Any OpenAI-compatible Chat Completions endpoint: openai.com, Azure OpenAI v1, Ollama | `services.AddAdjudge().AddOpenAI()` | `new OpenAIProvider(new OpenAIOptions())` |
+
+The OpenAI provider asks one chat call per question, labels the options so that each label is a single
+token, and reads the distribution either from the first answer token's log probabilities or from
+repeated samples. Confidence from it is derived from token probabilities or sample agreement, not
+calibrated over the option set.
+
+Labels are read leniently. Everything before the first letter or digit is stripped and the run that
+follows is the label, so `**A**`, `- A`, `(A)`, `` `A` `` and `"yes"` all parse. A sampled reply is
+split into words and the first word that is an offered label wins, so `Answer: A` parses too, at the
+price of reading `A customer wants billing` as `A`.
+
 ## Configuration
 
-Jev reads these environment variables when the matching option is not set:
+Each provider reads these environment variables when the matching option is not set:
 
 | Variable | Option | Default |
 |---|---|---|
 | `TYPESAFE_API_KEY` | `JevOptions.ApiKey` | required |
 | `TYPESAFE_BASE_URL` | `JevOptions.BaseUrl` | `https://api.typesafe.ai` |
 | `TYPESAFE_DEFAULT_MODEL` | `JevOptions.Model` | `jev-latest` |
+| `OPENAI_API_KEY` | `OpenAIOptions.ApiKey` | required |
+| `OPENAI_BASE_URL` | `OpenAIOptions.BaseUrl` | `https://api.openai.com/v1` |
+| `OPENAI_MODEL` | `OpenAIOptions.Model` | required |
 
 `JevOptions.Timeout` defaults to 10 seconds and `JevOptions.MaxRetries` to 2. Retries cover 408, 429
 and 5xx responses, with jittered backoff, and they honour `Retry-After`. Set them in code:
@@ -208,7 +229,29 @@ services.AddAdjudge().AddJev(o => o.Timeout = TimeSpan.FromSeconds(20));
 ```
 
 A failed call throws `JevException`, which carries `StatusCode`, `IsTransient`, `RetryAfter`,
-`RequestId` and `ResponseBody`.
+`RequestId` and `ResponseBody`. `OpenAIException` carries the same fields.
+
+`OpenAIOptions` shares `Timeout` and `MaxRetries`, and adds `Strategy` (`LogProbabilities` or
+`Sampling`), `TopLogProbabilities`, `Temperature`, `Samples`, `SamplingTemperature` and
+`MaxConcurrentCalls`:
+
+```csharp
+services.AddAdjudge().AddOpenAI(o =>
+{
+    o.Model = "gpt-4o-mini";
+    o.Strategy = ConfidenceStrategy.Sampling;
+    o.Samples = 7;
+});
+```
+
+`TopLogProbabilities` defaults to 5 because that is the most Azure OpenAI accepts on its v1 endpoint,
+which rejects anything higher with a 400 that no retry will fix; openai.com allows up to 20, so raise
+it when you know the endpoint takes it. `Temperature` is a nullable float defaulting to 0, and setting
+it to null omits the parameter altogether, which is what the models that reject a temperature need.
+
+An assertion's probability comes from the raw answer masses: `yes / (yes + no)` when both answers came
+back, and when only one did, the residual stands in for the other, `yes / (yes + max(0, 1 - yes))`. It
+is clamped to 0.001 to 0.999, so a single confident token never reads as certainty.
 
 ## Telemetry
 
