@@ -27,6 +27,22 @@ jobs:
 
       - run: dotnet pack -c Release --no-build -o ./artifacts
 
+      - name: Refuse untagged versions
+        run: |
+          # MinVer falls back to 0.0.0-alpha when it does not recognise the tag, so verify pack picked up the real tag version.
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          BAD=""
+          for f in ./artifacts/*.nupkg; do
+            case "$f" in
+              *".${EXPECTED}.nupkg") ;;
+              *) BAD="$BAD $f" ;;
+            esac
+          done
+          if [ -n "$BAD" ]; then
+            echo "Packages not derived from tag $GITHUB_REF_NAME (expected version $EXPECTED):$BAD"
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v7
         with:
           name: packages

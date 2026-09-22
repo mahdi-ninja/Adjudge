@@ -22,8 +22,6 @@ dotnet add package Adjudge.OpenAI
 dotnet add package Adjudge.Testing
 ```
 
-It's not on NuGet yet, so for now reference the projects directly.
-
 ## Quick start
 
 Context, rubrics and the result type:
