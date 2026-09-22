@@ -17,5 +17,7 @@ internal static class AdjudgeTelemetry
 
     public static readonly Counter<long> OutputTokens = Meter.CreateCounter<long>("adjudge.tokens.output", "{token}");
 
+    public static readonly Counter<long> CascadeAnswers = Meter.CreateCounter<long>("adjudge.cascade.answers", "{answer}");
+
     public static readonly Histogram<double> Confidence = Meter.CreateHistogram<double>("adjudge.confidence", "1");
 }

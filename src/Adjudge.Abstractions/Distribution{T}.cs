@@ -89,9 +89,7 @@ public readonly record struct Distribution<T>
 
         Top = top;
         Margin = members.Length == 1 ? topValue : topValue - secondValue;
-        Confidence = members.Length == 1
-            ? 1d
-            : Math.Clamp(((members.Length * topValue) - 1d) / (members.Length - 1d), 0d, 1d);
+        Confidence = ConfidenceFormula.From(members.Length, topValue);
     }
 
     /// <summary>The normalised mass per member, summing to 1 and covering every member of the enum.</summary>

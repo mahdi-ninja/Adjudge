@@ -17,7 +17,7 @@ library's question model and their own API. Application code never sees a provid
 
 - Free-text or extraction answers. Every answer is over a closed set, so probabilities are meaningful.
 - Ranking primitives. Repeated `Rate` covers it.
-- Provider cascade, caching, calibration, human-in-the-loop.
+- Caching, calibration, human-in-the-loop.
 - Data-driven (YAML/JSON) definitions. Code first; the spec is the serialised form and may be exposed later.
 
 ## Primitives
@@ -220,7 +220,102 @@ provider. `DecisionEngineOptions.EnableTelemetry` turns the lot off.
 
 DI: `services.AddAdjudge(o => ...)` registers the engine and returns a builder;
 `.AddDecision<TicketTriageDecision>()` registers `IDecision<TicketContext, TicketTriage>` as singleton;
-`.UseProvider<T>()` or provider packages add `IDecisionProvider`. Exactly one provider in v1.
+`.UseProvider<T>()` or provider packages add `IDecisionProvider`. `.UseCascade(...)` composes several of them into one.
+
+
+## Composing providers
+
+`CascadeProvider` is an `IDecisionProvider` over an ordered list of `CascadeStage`s, cheapest first. It
+works per question, not per request. Each stage is asked only the questions that are still open and that
+its `Capabilities` cover, so a classify-only stage is never asked a rating, and a stage with nothing left
+to answer is not called at all. An answer stands when the stage's `AcceptAnswer` accepts it; otherwise the
+question carries on to the next stage. The last stage is authoritative: its answers stand whatever its own
+acceptance rule says, and a question still open after it is a `ProviderResponseException`.
+
+- Fall-through: `FallThroughOnError` on a stage swallows a transient `ProviderException` and any
+  `ProviderResponseException`, which is the stage answering nonsense, and carries its questions to the next
+  stage. Everything else propagates, cancellation and `DecisionDefinitionException` included. It is ignored
+  on the last stage, which has nowhere to fall through to, so a failure there always reaches the caller.
+- A stage that returns null, or a response with null `Answers`, is a `ProviderResponseException` naming that
+  provider. Answers for questions the stage was not sent, or that are already settled, are ignored.
+- Metadata: `stage.{index}.provider` for every stage called, `stage.{index}.error` for a stage that fell
+  through, `question.{name}.stage` and `question.{name}.provider` for every question answered,
+  `stages.called`, and each stage's own response metadata under a `stage.{index}.` prefix, so the second
+  stage's `request_id` reads as `stage.1.request_id`. Indexes rather than names, because two stages may run
+  the same provider.
+- `Model` is reported only when every stage that answered reported the same non-empty model; a stage that
+  answered without one leaves it null. `Usage` is the sum over the stages that reported any, and is null
+  when none did.
+- Capabilities: the constructor insists the last stage can answer every kind an earlier stage can, and
+  throws `ArgumentException` otherwise, since a question an earlier stage declines has nowhere else to go.
+  The cascade reports the last stage's kind flags, plus `NativeConfidence` and `Batch` only when every
+  stage has them.
+
+`AcceptWhen` holds the ready-made rules. `AcceptWhen.Always` accepts everything, which is what a stage with
+no rule does. `AcceptWhen.ConfidenceAtLeast(floor)` accepts an answer whose confidence, computed with the
+library's own formula over the option or level count the question declares, reaches the floor; the floor
+itself has to be a finite value from 0 to 1. A proposition is read as a two-way choice whose top mass is the
+larger of the probability and its complement, so 0.9 and 0.1 both give 0.8. A malformed answer, meaning an
+empty set of probabilities, a mass that is negative or not finite, or a total outside 1 plus or minus 0.02,
+reads as a confidence of 0 and falls through rather than standing on nonsense.
+
+```csharp
+services.AddAdjudge()
+    .UseCascade(cascade => cascade
+        .Stage(rules)
+        .Stage<JevProvider>(AcceptWhen.ConfidenceAtLeast(0.8), fallThroughOnError: true)
+        .Stage<OpenAIProvider>())
+    .AddJev()
+    .AddOpenAI()
+    .AddDecision<TicketTriageDecision, TicketContext, TicketTriage>();
+```
+
+`UseCascade` removes every `IDecisionProvider` registration made before it and adds the cascade as a
+singleton. A later `TryAdd`-based registration, which is what `AddJev` and `AddOpenAI` use, is a no-op and
+leaves the cascade in place; a later plain `AddSingleton<IDecisionProvider>` would win. Both provider
+packages also register their concrete type, so `Stage<JevProvider>()` resolves, and they leave an earlier
+registration of that type alone. `Stage` also takes a provider instance, or a factory over `IServiceProvider`
+for a provider that has no registration of its own; a provider named by type has to be a singleton, because
+the cascade resolves it once from the root.
+
+Telemetry: one `adjudge.cascade.stage` activity per stage call on the `Adjudge` ActivitySource, tagged with
+`definition.id`, `stage.index`, `provider` and `questions`, and set to an error status on any failure,
+whether it falls through or propagates. Accepted answers are counted on the `adjudge.cascade.answers`
+counter, tagged the same way. `DecisionEngineOptions.EnableTelemetry` governs the engine's own instruments
+only: the cascade always emits, which costs nothing while no listener is subscribed.
+
+## Rules provider
+
+`RulesProvider<TContext>` answers from predicates you write in C# against your own context, so the cheap,
+certain cases never reach a model. The rules are developer-owned code, not an auditable business rules
+engine: no storage, no versioning, no audit trail, nothing a non-developer edits.
+
+```csharp
+var rules = RulesProvider.Create<TicketContext>(r => r
+    .Classify<Intent>("intent", b => b
+        .When(Intent.Billing, t => t.Message.Contains("invoice", StringComparison.OrdinalIgnoreCase))
+        .When(Intent.Tracking, t => t.Message.Contains("where is my order", StringComparison.OrdinalIgnoreCase)))
+    .Assert("abusive", t => t.FlaggedByFilter, t => t.FromVerifiedPartner));
+```
+
+- `Create` is the only way to build one, and the provider is immutable afterwards: the rules are frozen and
+  there is no registration API on the provider itself.
+- A rule that settles a question answers it with all the mass on one option and a `Heuristic` confidence
+  source. Two options matching declines, as does an `Assert` whose true and false predicates both hold, and
+  so does a question no rule covers. Declining means the question is left out of the response.
+- There is deliberately no `Rate`. An ordinal judgement is not something a keyword predicate can make
+  honestly, so rate questions are declined and belong to the provider behind this one.
+- Option keys are validated against the enum's members when the provider is built, which throws
+  `ArgumentException` there rather than on the first decision. At decide time the decision's own option keys
+  are checked against the enum the rules were written over, and a mismatch is a `DecisionDefinitionException`.
+- Predicates run as written and their exceptions are not caught or wrapped: a rule that throws is a bug in
+  the rule, and it reaches the caller unchanged.
+- It answers `rules.matched` in its metadata, which surfaces under the cascade's `stage.{index}.` prefix.
+- It needs a cascade behind it. Handed straight to the engine, every question its rules do not cover fails.
+
+The reference ordering is rules, then Jev, then a chat model. Rules cost nothing and settle what is already
+certain. Jev is the cheap, fast, calibrated stage that should answer most of what is left. A chat model is
+the expensive last resort, authoritative because nothing follows it.
 
 ## Exceptions
 

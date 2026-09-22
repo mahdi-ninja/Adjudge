@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Adjudge/Adjudge.csproj" />
     <ProjectReference Include="../../src/Adjudge.Abstractions/Adjudge.Abstractions.csproj" />
+    <ProjectReference Include="../../src/Adjudge.Testing/Adjudge.Testing.csproj" />
   </ItemGroup>
 
 </Project>

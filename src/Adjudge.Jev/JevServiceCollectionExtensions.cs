@@ -9,7 +9,14 @@ namespace Adjudge.Jev;
 /// <summary>Registers the Jev provider, on either a service collection or the builder <c>AddAdjudge</c> returns.</summary>
 public static class JevServiceCollectionExtensions
 {
-    /// <summary>Registers the provider along with its named client and retry pipeline. Options are validated at startup, not on the first call.</summary>
+    /// <summary>Registers the provider along with its named client and retry pipeline. Options are validated at startup, not on the first call.
+    /// <para>
+    /// The concrete <see cref="JevProvider"/> is registered as a singleton in its own right, so it can be named
+    /// as a cascade stage with <c>Stage&lt;JevProvider&gt;()</c>. Both registrations are <c>TryAdd</c>-based, so a
+    /// registration the caller made earlier, of either the concrete type or <c>IDecisionProvider</c>, is
+    /// left alone.
+    /// </para>
+    /// </summary>
     /// <param name="services">The collection the provider is registered into.</param>
     /// <param name="configure">Sets the options in code. Unset values still fall back to the environment.</param>
     /// <exception cref="ArgumentNullException"><paramref name="services"/> is null.</exception>
@@ -51,9 +58,10 @@ public static class JevServiceCollectionExtensions
                     pipeline,
                     context.ServiceProvider.GetRequiredService<IOptions<JevOptions>>().Value));
 
-        services.TryAddSingleton<IDecisionProvider>(provider => new JevProvider(
+        services.TryAddSingleton(provider => new JevProvider(
             provider.GetRequiredService<IHttpClientFactory>().CreateClient(JevOptions.HttpClientName),
             provider.GetRequiredService<IOptions<JevOptions>>()));
+        services.TryAddSingleton<IDecisionProvider>(provider => provider.GetRequiredService<JevProvider>());
 
         return services;
     }

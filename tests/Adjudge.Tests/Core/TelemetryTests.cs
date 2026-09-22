@@ -4,6 +4,7 @@ using System.Diagnostics.Metrics;
 
 namespace Adjudge.Tests.Core;
 
+[Collection(CascadeTestGroup.Name)]
 public sealed class TelemetryTests
 {
     private const string DefinitionId = "test.telemetry";
