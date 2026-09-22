@@ -5,8 +5,12 @@ namespace Adjudge.Testing;
 /// <typeparam name="TResult">The typed answers the decision produces.</typeparam>
 public sealed class FakeDecision<TContext, TResult> : IDecision<TContext, TResult>
 {
+    private static readonly IReadOnlyDictionary<string, string> EmptyMetadata =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
     private readonly object _gate = new();
     private readonly List<TContext> _contexts = [];
+    private readonly Dictionary<string, string> _metadata = new(StringComparer.Ordinal);
     private Func<TContext, DecisionResult<TResult>>? _result;
     private Exception? _exception;
     private int _calls;
@@ -45,6 +49,22 @@ public sealed class FakeDecision<TContext, TResult> : IDecision<TContext, TResul
         ArgumentNullException.ThrowIfNull(result);
 
         return Script(_ => result);
+    }
+
+    /// <summary>Adds one metadata entry to every wrapped result, replacing any entry under the same key. A result scripted whole carries its own metadata instead.</summary>
+    /// <exception cref="ArgumentException"><paramref name="key"/> is null, empty or whitespace.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="value"/> is null.</exception>
+    public FakeDecision<TContext, TResult> WithMetadata(string key, string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentNullException.ThrowIfNull(value);
+
+        lock (_gate)
+        {
+            _metadata[key] = value;
+        }
+
+        return this;
     }
 
     /// <summary>Makes every call fail with this exception, until a <c>Returns</c> replaces it.</summary>
@@ -92,8 +112,16 @@ public sealed class FakeDecision<TContext, TResult> : IDecision<TContext, TResul
         return Task.FromResult(result(context));
     }
 
-    private static DecisionResult<TResult> Wrap(TResult value) =>
-        new(Guid.NewGuid(), "fake", "fake", null, value, null, DateTimeOffset.UtcNow);
+    private DecisionResult<TResult> Wrap(TResult value)
+    {
+        IReadOnlyDictionary<string, string> metadata;
+        lock (_gate)
+        {
+            metadata = _metadata.Count == 0 ? EmptyMetadata : new Dictionary<string, string>(_metadata, StringComparer.Ordinal);
+        }
+
+        return new DecisionResult<TResult>(Guid.NewGuid(), "fake", "fake", null, value, null, DateTimeOffset.UtcNow, metadata);
+    }
 
     private FakeDecision<TContext, TResult> Script(Func<TContext, DecisionResult<TResult>> result)
     {

@@ -14,11 +14,11 @@ public sealed class EndToEndTests
     }
 
     [Fact]
-    public async Task DecideAsync_WhenRunThroughTheEngine_DerivesTheConfidence()
+    public async Task DecideAsync_WhenRunThroughTheEngine_DerivesTheConfidenceAndMarksItHeuristic()
     {
         var (result, _) = await DecideAsync();
 
-        result.Value.Intent.Confidence.Source.ShouldBe(ConfidenceSource.Derived);
+        result.Value.Intent.Confidence.Source.ShouldBe(ConfidenceSource.Heuristic);
         result.Value.Intent.Confidence.ProviderReported.ShouldBeNull();
     }
 

@@ -9,6 +9,7 @@ namespace Adjudge;
 /// <param name="Value">The typed answers.</param>
 /// <param name="Usage">Tokens the provider reported, when it reported any.</param>
 /// <param name="Timestamp">When the engine completed the evaluation.</param>
+/// <param name="Metadata">Provider-specific detail, such as a request identifier or which stage answered a question. Never null, and empty when the provider sent none.</param>
 public sealed record DecisionResult<TResult>(
     Guid Id,
     string DefinitionId,
@@ -16,4 +17,5 @@ public sealed record DecisionResult<TResult>(
     string? Model,
     TResult Value,
     Usage? Usage,
-    DateTimeOffset Timestamp);
+    DateTimeOffset Timestamp,
+    IReadOnlyDictionary<string, string> Metadata);

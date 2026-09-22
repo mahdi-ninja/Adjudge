@@ -103,6 +103,25 @@ public sealed class OpenAILogProbabilityTests
     }
 
     [Fact]
+    public async Task DecideAsync_WhenClassifying_MarksTheSourceHeuristic()
+    {
+        (await ClassifyAsync("A", ChatResponses.Tops(("A", 1.0)))).Source.ShouldBe(ConfidenceSource.Heuristic);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WhenRating_MarksTheSourceHeuristic()
+    {
+        var handler = new RecordingHandler(RecordingHandler.Json(
+            HttpStatusCode.OK,
+            ChatResponses.WithLogProbabilities("2", ChatResponses.Tops(("2", 0.7), ("1", 0.2), ("0", 0.1)))));
+        using var provider = TestProvider.Create(handler);
+
+        var result = await provider.DecideAsync(TestRequest.For(TestRequest.Rate()), TestContext.Current.CancellationToken);
+
+        result.Answers["urgency"].ShouldBeOfType<RateAnswerSpec>().Source.ShouldBe(ConfidenceSource.Heuristic);
+    }
+
+    [Fact]
     public async Task DecideAsync_WhenAnswering_CarriesTheModelUsageAndMetadata()
     {
         var handler = new RecordingHandler(RecordingHandler.Json(

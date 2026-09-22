@@ -102,6 +102,25 @@ public sealed class OpenAISamplingTests
         answer.Probabilities.ShouldNotContainKey("Billing");
     }
 
+    [Fact]
+    public async Task DecideAsync_WhenSamplingAClassification_MarksTheSourceSampled()
+    {
+        var (answer, _) = await ClassifyAsync("A", "A", "A", "A", "A");
+
+        answer.Source.ShouldBe(ConfidenceSource.Sampled);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WhenSamplingARating_MarksTheSourceSampled()
+    {
+        var handler = Handler("2", "2", "2", "1", "2");
+        using var provider = Provider(handler);
+
+        var result = await provider.DecideAsync(TestRequest.For(TestRequest.Rate()), TestContext.Current.CancellationToken);
+
+        result.Answers["urgency"].ShouldBeOfType<RateAnswerSpec>().Source.ShouldBe(ConfidenceSource.Sampled);
+    }
+
     private static RecordingHandler Handler(params string[] contents) =>
         new(index => RecordingHandler.Json(HttpStatusCode.OK, ChatResponses.Plain(contents[index])));
 

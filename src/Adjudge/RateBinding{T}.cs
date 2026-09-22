@@ -43,7 +43,7 @@ internal sealed class RateBinding<[DynamicallyAccessedMembers(DynamicallyAccesse
         }
 
         var distribution = AnswerMapping.ToDistribution<T>(rate.Probabilities, Name, provider);
-        var confidence = AnswerMapping.Confidence(distribution.Confidence, rate.Confidence);
+        var confidence = AnswerMapping.Confidence(distribution.Confidence, rate.Confidence, rate.Source);
         return new MappedAnswer(Rating<T>.From(distribution, confidence), confidence.Value);
     }
 }

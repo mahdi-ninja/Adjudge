@@ -41,7 +41,7 @@ internal static class OpenAIAnswerMapper
             throw Invalid(plan, Text(completion), "no top log probability matched a label that was offered");
         }
 
-        return ToAnswer(plan, weights, assertionMasses: weights);
+        return ToAnswer(plan, weights, assertionMasses: weights, ConfidenceSource.Heuristic);
     }
 
     public static AnswerSpec FromSamples(QuestionPlan plan, IReadOnlyList<ChatCompletion> completions)
@@ -63,7 +63,7 @@ internal static class OpenAIAnswerMapper
         }
 
         var shares = Normalise(counts);
-        return ToAnswer(plan, counts, assertionMasses: shares);
+        return ToAnswer(plan, counts, assertionMasses: shares, ConfidenceSource.Sampled);
     }
 
     private static string NoTokensReason(ChatCompletion completion) =>
@@ -172,7 +172,8 @@ internal static class OpenAIAnswerMapper
     private static AnswerSpec ToAnswer(
         QuestionPlan plan,
         Dictionary<string, double> weights,
-        Dictionary<string, double> assertionMasses)
+        Dictionary<string, double> assertionMasses,
+        ConfidenceSource source)
     {
         if (plan.Question is AssertSpec)
         {
@@ -190,8 +191,8 @@ internal static class OpenAIAnswerMapper
         }
 
         return plan.Question is RateSpec
-            ? new RateAnswerSpec(plan.Question.Name, probabilities, Confidence: null)
-            : new ClassifyAnswerSpec(plan.Question.Name, probabilities, Confidence: null);
+            ? new RateAnswerSpec(plan.Question.Name, probabilities, Confidence: null, source)
+            : new ClassifyAnswerSpec(plan.Question.Name, probabilities, Confidence: null, source);
     }
 
     private static AssertAnswerSpec Assertion(QuestionPlan plan, Dictionary<string, double> masses)

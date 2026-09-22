@@ -50,8 +50,6 @@ internal static class AnswerMapping
         return new Distribution<T>(mapped);
     }
 
-    public static Confidence Confidence(double derived, double? reported) =>
-        reported is null
-            ? new Confidence(derived, ConfidenceSource.Derived)
-            : new Confidence(derived, ConfidenceSource.Native, reported);
+    public static Confidence Confidence(double derived, double? reported, ConfidenceSource? source) =>
+        new(derived, source ?? (reported is null ? ConfidenceSource.Derived : ConfidenceSource.Native), reported);
 }

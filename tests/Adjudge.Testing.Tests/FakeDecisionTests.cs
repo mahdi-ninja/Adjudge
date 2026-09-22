@@ -34,12 +34,40 @@ public sealed class FakeDecisionTests
     [Fact]
     public async Task DecideAsync_WithScriptedResult_PassesItThrough()
     {
-        var scripted = new DecisionResult<string>(Guid.NewGuid(), "support.triage", "jev", "jev-1", "triaged", new Usage(1, 2), Now);
+        var scripted = new DecisionResult<string>(
+            Guid.NewGuid(),
+            "support.triage",
+            "jev",
+            "jev-1",
+            "triaged",
+            new Usage(1, 2),
+            Now,
+            new Dictionary<string, string> { ["request_id"] = "req_1" });
         var decision = new FakeDecision<Ticket, string>().Returns(scripted);
 
         var result = await decision.DecideAsync(new Ticket("hello"), TestContext.Current.CancellationToken);
 
         result.ShouldBeSameAs(scripted);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithScriptedValue_WrapsItWithEmptyMetadata()
+    {
+        var decision = new FakeDecision<Ticket, string>().Returns("triaged");
+
+        var result = await decision.DecideAsync(new Ticket("hello"), TestContext.Current.CancellationToken);
+
+        result.Metadata.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DecideAsync_AfterWithMetadata_WrapsTheValueWithThatMetadata()
+    {
+        var decision = new FakeDecision<Ticket, string>().Returns("triaged").WithMetadata("stage", "cheap");
+
+        var result = await decision.DecideAsync(new Ticket("hello"), TestContext.Current.CancellationToken);
+
+        result.Metadata["stage"].ShouldBe("cheap");
     }
 
     [Fact]

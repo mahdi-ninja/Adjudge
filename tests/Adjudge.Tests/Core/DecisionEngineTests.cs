@@ -49,6 +49,63 @@ public sealed class DecisionEngineTests
     }
 
     [Fact]
+    public async Task DecideAsync_ClassifyAnswerHintingItsSource_HonoursTheHint()
+    {
+        var result = await TriageAsync(new StubProvider { Response = Answers.Triage(source: ConfidenceSource.Sampled) });
+
+        (result.Value.Intent.Confidence.Source, result.Value.Intent.Confidence.ProviderReported)
+            .ShouldBe((ConfidenceSource.Sampled, null));
+    }
+
+    [Fact]
+    public async Task DecideAsync_RateAnswerHintingItsSource_HonoursTheHint()
+    {
+        var result = await TriageAsync(new StubProvider { Response = Answers.Triage(source: ConfidenceSource.Heuristic) });
+
+        result.Value.Urgency.Confidence.Source.ShouldBe(ConfidenceSource.Heuristic);
+    }
+
+    [Fact]
+    public async Task DecideAsync_AnswerHintingItsSourceAndReportingConfidence_KeepsBothTheHintAndTheFigure()
+    {
+        var provider = new StubProvider
+        {
+            Response = Answers.Triage(classifyConfidence: 0.42, source: ConfidenceSource.Sampled),
+        };
+
+        var result = await TriageAsync(provider);
+
+        (result.Value.Intent.Confidence.Source, result.Value.Intent.Confidence.ProviderReported)
+            .ShouldBe((ConfidenceSource.Sampled, 0.42));
+    }
+
+    [Fact]
+    public async Task DecideAsync_AnswerHintingItsSource_StillDerivesTheConfidenceValue()
+    {
+        var result = await TriageAsync(new StubProvider { Response = Answers.Triage(source: ConfidenceSource.Native) });
+
+        result.Value.Intent.Confidence.Value.ShouldBe(0.7, 1e-9);
+    }
+
+    [Fact]
+    public async Task DecideAsync_ProviderReportingMetadata_PassesItThrough()
+    {
+        var metadata = new Dictionary<string, string> { ["request_id"] = "req_42", ["stage"] = "cheap" };
+
+        var result = await TriageAsync(new StubProvider { Response = Answers.Triage(metadata: metadata) });
+
+        result.Metadata.ShouldBe(metadata);
+    }
+
+    [Fact]
+    public async Task DecideAsync_ProviderReportingNoMetadata_ReportsAnEmptyDictionary()
+    {
+        var result = await TriageAsync(new StubProvider { Response = Answers.Triage() });
+
+        result.Metadata.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task DecideAsync_RateAnswer_PlacesTheValueBetweenLevels()
     {
         var result = await TriageAsync(new StubProvider { Response = Answers.Triage() });

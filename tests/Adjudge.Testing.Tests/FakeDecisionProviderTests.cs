@@ -163,6 +163,130 @@ public sealed class FakeDecisionProviderTests
     }
 
     [Fact]
+    public async Task DecideAsync_WithScriptedClassifySource_CarriesTheHint()
+    {
+        var provider = new FakeDecisionProvider().Classify("intent", nameof(Intent.Tracking), source: ConfidenceSource.Sampled);
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Classify("intent", nameof(Intent.Billing), nameof(Intent.Tracking), nameof(Intent.Returns))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers["intent"].ShouldBeOfType<ClassifyAnswerSpec>().Source.ShouldBe(ConfidenceSource.Sampled);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithScriptedClassifyProbabilitiesAndSource_CarriesTheHint()
+    {
+        var scripted = new Dictionary<string, double> { [nameof(Intent.Billing)] = 1d };
+        var provider = new FakeDecisionProvider().Classify("intent", scripted, nativeConfidence: 0.55, source: ConfidenceSource.Heuristic);
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Classify("intent", nameof(Intent.Billing), nameof(Intent.Tracking), nameof(Intent.Returns))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers["intent"].ShouldBeOfType<ClassifyAnswerSpec>().Source.ShouldBe(ConfidenceSource.Heuristic);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithScriptedRateSource_CarriesTheHint()
+    {
+        var provider = new FakeDecisionProvider().Rate("urgency", nameof(Urgency.High), source: ConfidenceSource.Sampled);
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Rate("urgency", nameof(Urgency.Low), nameof(Urgency.Medium), nameof(Urgency.High))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers["urgency"].ShouldBeOfType<RateAnswerSpec>().Source.ShouldBe(ConfidenceSource.Sampled);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithScriptedRateProbabilitiesAndSource_CarriesTheHint()
+    {
+        var scripted = new Dictionary<string, double> { [nameof(Urgency.High)] = 1d };
+        var provider = new FakeDecisionProvider().Rate("urgency", scripted, nativeConfidence: 0.6, source: ConfidenceSource.Heuristic);
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Rate("urgency", nameof(Urgency.Low), nameof(Urgency.Medium), nameof(Urgency.High))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers["urgency"].ShouldBeOfType<RateAnswerSpec>().Source.ShouldBe(ConfidenceSource.Heuristic);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithNoSourceScripted_LeavesTheHintNull()
+    {
+        var provider = new FakeDecisionProvider().Classify("intent", nameof(Intent.Tracking));
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Classify("intent", nameof(Intent.Billing), nameof(Intent.Tracking), nameof(Intent.Returns))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers["intent"].ShouldBeOfType<ClassifyAnswerSpec>().Source.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithADeclinedQuestion_OmitsItFromTheResponse()
+    {
+        var provider = new FakeDecisionProvider().Declines("intent");
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Classify("intent", nameof(Intent.Billing), nameof(Intent.Tracking))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers.ShouldNotContainKey("intent");
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithADeclinedQuestion_StillAnswersTheRest()
+    {
+        var provider = new FakeDecisionProvider().Declines("intent").Assert("abusive", 0.3);
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Classify("intent", nameof(Intent.Billing)), Requests.Assert("abusive")),
+            TestContext.Current.CancellationToken);
+
+        response.Answers.Keys.ShouldBe(["abusive"]);
+    }
+
+    [Fact]
+    public async Task DecideAsync_WhenAScriptReplacesADecline_AnswersTheQuestionAgain()
+    {
+        var provider = new FakeDecisionProvider().Declines("intent").Classify("intent", nameof(Intent.Billing));
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Classify("intent", nameof(Intent.Billing), nameof(Intent.Tracking))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers.ShouldContainKey("intent");
+    }
+
+    [Fact]
+    public async Task DecideAsync_AfterResetClearsADecline_AnswersTheQuestionAgain()
+    {
+        var provider = new FakeDecisionProvider().Declines("intent");
+        provider.Reset();
+
+        var response = await provider.DecideAsync(
+            Requests.For(Requests.Classify("intent", nameof(Intent.Billing), nameof(Intent.Tracking))),
+            TestContext.Current.CancellationToken);
+
+        response.Answers.ShouldContainKey("intent");
+    }
+
+    [Fact]
+    public async Task DecideAsync_WithADeclinedQuestionRunThroughTheEngine_Throws()
+    {
+        var provider = new FakeDecisionProvider().Declines("intent");
+        var engine = new DecisionEngine(provider, new DecisionEngineOptions { EnableTelemetry = false });
+        var decision = engine.Create<TriageDecision, Ticket, Triage>();
+
+        var exception = await Should.ThrowAsync<ProviderResponseException>(
+            () => decision.DecideAsync(new Ticket("hello"), TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("intent");
+    }
+
+    [Fact]
     public async Task DecideAsync_WhenCalled_RecordsTheRequest()
     {
         var provider = new FakeDecisionProvider();

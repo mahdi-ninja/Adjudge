@@ -78,6 +78,14 @@ public sealed class EndToEndTests
         result.Usage.ShouldBe(new Usage(412, 57));
     }
 
+    [Fact]
+    public async Task DecideAsync_WhenRunThroughTheEngine_CarriesTheRequestIdMetadata()
+    {
+        var (result, _) = await DecideAsync();
+
+        result.Metadata["request_id"].ShouldBe("req_e2e");
+    }
+
     private static async Task<(DecisionResult<Triage> Result, RecordingHandler Handler)> DecideAsync()
     {
         var handler = new RecordingHandler(RecordingHandler.Json(HttpStatusCode.OK, Response, "req_e2e"));

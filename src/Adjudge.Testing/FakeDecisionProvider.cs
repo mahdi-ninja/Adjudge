@@ -10,6 +10,7 @@ public sealed class FakeDecisionProvider : IDecisionProvider
 {
     private readonly object _sync = new();
     private readonly Dictionary<string, Func<QuestionSpec, AnswerSpec>> _scripts = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _declined = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _metadata = new(StringComparer.Ordinal);
     private readonly Queue<Exception> _pendingThrows = new();
     private readonly List<ProviderRequest> _requests = [];
@@ -64,8 +65,9 @@ public sealed class FakeDecisionProvider : IDecisionProvider
     /// <param name="question">The question name, in camelCase, as the definition produces it.</param>
     /// <param name="top">An option key, checked against the question when the request arrives.</param>
     /// <param name="confidence">The confidence the resulting distribution should report.</param>
+    /// <param name="source">Where the answer claims its confidence came from. Left null, the engine infers it.</param>
     /// <exception cref="ArgumentException"><paramref name="top"/> is null, empty or whitespace.</exception>
-    public FakeDecisionProvider Classify(string question, string top, double confidence = 0.9)
+    public FakeDecisionProvider Classify(string question, string top, double confidence = 0.9, ConfidenceSource? source = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(top);
 
@@ -73,7 +75,7 @@ public sealed class FakeDecisionProvider : IDecisionProvider
         {
             var keys = Keys(spec, question);
             RequireKey(keys, top, question);
-            return new ClassifyAnswerSpec(question, Spread(keys, top, confidence));
+            return new ClassifyAnswerSpec(question, Spread(keys, top, confidence), Confidence: null, source);
         });
     }
 
@@ -81,15 +83,20 @@ public sealed class FakeDecisionProvider : IDecisionProvider
     /// <param name="question">The question name, in camelCase, as the definition produces it.</param>
     /// <param name="probabilities">Mass per key, checked against the question when the request arrives.</param>
     /// <param name="nativeConfidence">A provider-reported confidence, which turns the answer's source native.</param>
+    /// <param name="source">Where the answer claims its confidence came from. Left null, the engine infers it.</param>
     /// <exception cref="ArgumentException">No probability was supplied.</exception>
-    public FakeDecisionProvider Classify(string question, IReadOnlyDictionary<string, double> probabilities, double? nativeConfidence = null)
+    public FakeDecisionProvider Classify(
+        string question,
+        IReadOnlyDictionary<string, double> probabilities,
+        double? nativeConfidence = null,
+        ConfidenceSource? source = null)
     {
         var scripted = Copy(probabilities);
 
         return Script(question, spec =>
         {
             RequireKeys(Keys(spec, question), scripted.Keys, question);
-            return new ClassifyAnswerSpec(question, scripted, nativeConfidence);
+            return new ClassifyAnswerSpec(question, scripted, nativeConfidence, source);
         });
     }
 
@@ -97,8 +104,9 @@ public sealed class FakeDecisionProvider : IDecisionProvider
     /// <param name="question">The question name, in camelCase, as the definition produces it.</param>
     /// <param name="level">A level key, checked against the question when the request arrives.</param>
     /// <param name="confidence">The confidence the resulting distribution should report.</param>
+    /// <param name="source">Where the answer claims its confidence came from. Left null, the engine infers it.</param>
     /// <exception cref="ArgumentException"><paramref name="level"/> is null, empty or whitespace.</exception>
-    public FakeDecisionProvider Rate(string question, string level, double confidence = 0.9)
+    public FakeDecisionProvider Rate(string question, string level, double confidence = 0.9, ConfidenceSource? source = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(level);
 
@@ -106,7 +114,7 @@ public sealed class FakeDecisionProvider : IDecisionProvider
         {
             var keys = Keys(spec, question);
             RequireKey(keys, level, question);
-            return new RateAnswerSpec(question, Spread(keys, level, confidence));
+            return new RateAnswerSpec(question, Spread(keys, level, confidence), Confidence: null, source);
         });
     }
 
@@ -114,18 +122,20 @@ public sealed class FakeDecisionProvider : IDecisionProvider
     /// <param name="question">The question name, in camelCase, as the definition produces it.</param>
     /// <param name="probabilities">Mass per key, checked against the question when the request arrives.</param>
     /// <param name="nativeConfidence">A provider-reported confidence, which turns the answer's source native.</param>
+    /// <param name="source">Where the answer claims its confidence came from. Left null, the engine infers it.</param>
     /// <exception cref="ArgumentException">No probability was supplied.</exception>
     public FakeDecisionProvider Rate(
         string question,
         IReadOnlyDictionary<string, double> probabilities,
-        double? nativeConfidence = null)
+        double? nativeConfidence = null,
+        ConfidenceSource? source = null)
     {
         var scripted = Copy(probabilities);
 
         return Script(question, spec =>
         {
             RequireKeys(Keys(spec, question), scripted.Keys, question);
-            return new RateAnswerSpec(question, scripted, nativeConfidence);
+            return new RateAnswerSpec(question, scripted, nativeConfidence, source);
         });
     }
 
@@ -139,6 +149,25 @@ public sealed class FakeDecisionProvider : IDecisionProvider
         ArgumentOutOfRangeException.ThrowIfGreaterThan(probability, 1);
 
         return Script(question, _ => new AssertAnswerSpec(question, probability));
+    }
+
+    /// <summary>
+    /// Scripts the fake to leave this question out of its response altogether, which is how a provider
+    /// declines to answer. The engine treats the gap as an error, so only a composing provider tolerates it.
+    /// </summary>
+    /// <param name="question">The question name, in camelCase, as the definition produces it.</param>
+    /// <exception cref="ArgumentException"><paramref name="question"/> is null, empty or whitespace.</exception>
+    public FakeDecisionProvider Declines(string question)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(question);
+
+        lock (_sync)
+        {
+            _scripts.Remove(question);
+            _declined.Add(question);
+        }
+
+        return this;
     }
 
     /// <summary>Queues an exception for the next call, so retry and fallback paths can be exercised in order.</summary>
@@ -215,6 +244,7 @@ public sealed class FakeDecisionProvider : IDecisionProvider
         lock (_sync)
         {
             _scripts.Clear();
+            _declined.Clear();
             _metadata.Clear();
             _pendingThrows.Clear();
             _requests.Clear();
@@ -232,6 +262,7 @@ public sealed class FakeDecisionProvider : IDecisionProvider
         ct.ThrowIfCancellationRequested();
 
         Func<QuestionSpec, AnswerSpec>?[] scripts;
+        bool[] declined;
         string? model;
         Usage? usage;
         IReadOnlyDictionary<string, string>? metadata;
@@ -251,9 +282,12 @@ public sealed class FakeDecisionProvider : IDecisionProvider
             }
 
             scripts = new Func<QuestionSpec, AnswerSpec>?[request.Questions.Count];
+            declined = new bool[request.Questions.Count];
             for (var index = 0; index < request.Questions.Count; index++)
             {
-                scripts[index] = _scripts.GetValueOrDefault(request.Questions[index].Name);
+                var name = request.Questions[index].Name;
+                scripts[index] = _scripts.GetValueOrDefault(name);
+                declined[index] = _declined.Contains(name);
             }
 
             model = _model;
@@ -264,6 +298,11 @@ public sealed class FakeDecisionProvider : IDecisionProvider
         var answers = new Dictionary<string, AnswerSpec>(request.Questions.Count, StringComparer.Ordinal);
         for (var index = 0; index < request.Questions.Count; index++)
         {
+            if (declined[index])
+            {
+                continue;
+            }
+
             var question = request.Questions[index];
             answers[question.Name] = scripts[index] is { } script ? script(question) : Unanswered(question);
         }
@@ -356,6 +395,7 @@ public sealed class FakeDecisionProvider : IDecisionProvider
 
         lock (_sync)
         {
+            _declined.Remove(question);
             _scripts[question] = answer;
         }
 

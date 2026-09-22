@@ -11,6 +11,9 @@ public sealed class DecisionEngine
     private const string ReflectionMessage =
         "Serialising the context uses reflection. Use the constructor that takes a SerialiseContext, built with ContextSerializer.From.";
 
+    private static readonly IReadOnlyDictionary<string, string> EmptyMetadata =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+
     private readonly IDecisionProvider _provider;
     private readonly SerialiseContext _contextSerializer;
     private readonly bool _enableTelemetry;
@@ -158,7 +161,8 @@ public sealed class DecisionEngine
             response.Model,
             definition.CreateResult(answers),
             response.Usage,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow,
+            response.Metadata ?? EmptyMetadata);
     }
 
     [RequiresUnreferencedCode(ReflectionMessage)]

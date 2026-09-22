@@ -61,6 +61,7 @@ public sealed class DecisionResult<TResult>
     TResult Value;           // the typed answers
     Usage? Usage;
     DateTimeOffset Timestamp;
+    IReadOnlyDictionary<string, string> Metadata;   // provider detail, never null
 }
 
 public readonly record struct Distribution<T> where T : struct, Enum
@@ -85,7 +86,9 @@ public enum ConfidenceSource { Derived, Native, Sampled, Heuristic }
 thing for every provider. Formula for `n` options with top probability `p`:
 `(n * p - 1) / (n - 1)`, clamped to [0, 1]. It hits 1 when all the mass is on one option and 0 when
 the distribution is uniform. If the provider reports its own confidence, that's kept in
-`ProviderReported` and `Source` is `Native`. Otherwise `Source` is `Derived`.
+`ProviderReported`. `Source` says where that reported figure came from: an answer can carry an
+explicit `ConfidenceSource` hint, which the engine honours as given; with no hint, `Source` is
+`Native` when a confidence was reported and `Derived` when none was.
 
 ## Definitions (Adjudge)
 
@@ -148,8 +151,8 @@ public sealed record ProviderResponse(
     string? Model, Usage? Usage, IReadOnlyDictionary<string, string>? Metadata);
 
 public abstract record AnswerSpec(string Name);
-public sealed record ClassifyAnswerSpec(string Name, IReadOnlyDictionary<string, double> Probabilities, double? Confidence) : AnswerSpec;
-public sealed record RateAnswerSpec(string Name, IReadOnlyDictionary<string, double> Probabilities, double? Confidence) : AnswerSpec;
+public sealed record ClassifyAnswerSpec(string Name, IReadOnlyDictionary<string, double> Probabilities, double? Confidence, ConfidenceSource? Source) : AnswerSpec;
+public sealed record RateAnswerSpec(string Name, IReadOnlyDictionary<string, double> Probabilities, double? Confidence, ConfidenceSource? Source) : AnswerSpec;
 public sealed record AssertAnswerSpec(string Name, double Probability) : AnswerSpec;
 
 public sealed record Usage(long? InputTokens, long? OutputTokens);
@@ -162,6 +165,19 @@ already in hand, `DecisionContext.FromJson(value, json)` skips serialisation alt
 Enum keys on the wire are the member names as declared. The engine maps back by name.
 If a provider returns an unknown key, misses a question, or hands back probabilities that don't sum
 to roughly 1 (tolerance 0.02), you get `ProviderResponseException` after normalisation has been tried.
+
+A provider is allowed to leave a question out of `Answers` when it declines to answer it, rather than
+inventing a distribution it does not believe. That is not a free pass: the engine treats a missing
+answer as `ProviderResponseException`, so a provider handed straight to the engine has to answer every
+question it was asked. Omission is only useful to a composing provider, such as a cascade that puts the
+questions a cheap provider declined to a stronger one and merges the answers before the engine sees
+them.
+
+`ClassifyAnswerSpec` and `RateAnswerSpec` can carry a `Source` hint saying where the reported
+confidence came from (`Native`, `Sampled` or `Heuristic`); left null, the engine infers `Native` when a
+confidence was reported and `Derived` when none was. Whatever a provider puts in `ProviderResponse.Metadata`
+reaches the caller unchanged as `DecisionResult<TResult>.Metadata`, which is empty rather than null when
+the provider sent nothing.
 
 ## Engine (Adjudge)
 
@@ -252,8 +268,9 @@ the one `Microsoft.Extensions.Http.Resilience` pipeline the library already uses
   `OpenAIException` carrying the failures, so neither route can send an option the service will reject.
 - Capabilities: Classify | Rate | Assert. Not `Batch`: one chat call answers one question, and the
   questions in a request run concurrently up to `MaxConcurrentCalls`, honouring the cancellation
-  token. Not `NativeConfidence`: every answer reports `null`, so the engine derives confidence itself
-  and `ConfidenceSource` is `Derived`.
+  token. Not `NativeConfidence`: every answer reports `null` for the figure itself, so `Confidence.Value`
+  is always the library's own, but each answer hints at where its distribution came from, so
+  `ConfidenceSource` is `Heuristic` under `LogProbabilities` and `Sampled` under `Sampling`.
 - Prompt: a system message saying the model is a classifier that answers with a single label and
   nothing else, and a user message ordered question, options, state, label line. The state JSON is
   fenced as ```` ```json ```` under a `State:` heading and the instruction to reply with exactly one
@@ -314,7 +331,7 @@ the one `Microsoft.Extensions.Http.Resilience` pipeline the library already uses
 
 ## Testing package (Adjudge.Testing)
 
-- `FakeDecisionProvider`: scripted per question name (`.Classify("intent", top: "Billing", confidence: 0.9)` or full probabilities), records every `ProviderRequest`, can throw on demand, supports a default answer strategy (uniform) for unscripted questions.
+- `FakeDecisionProvider`: scripted per question name (`.Classify("intent", top: "Billing", confidence: 0.9)` or full probabilities, each taking an optional `ConfidenceSource` hint), records every `ProviderRequest`, can throw on demand, can omit a question with `.Declines("intent")`, and supports a default answer strategy (uniform) for unscripted questions.
 - `FakeDecision<TContext, TResult>`: implements `IDecision<,>` directly, `.Returns(result)`, `.Returns(ctx => result)`, `.Throws(ex)`, records contexts.
 - Static factories for answers: `Answers.Classification(T value, double confidence)`, `Answers.Rating(T nearest)`, `Answers.Assertion(double probability)`, each building a plausible distribution.
 

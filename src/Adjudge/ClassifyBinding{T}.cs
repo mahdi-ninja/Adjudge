@@ -48,7 +48,7 @@ internal sealed class ClassifyBinding<[DynamicallyAccessedMembers(DynamicallyAcc
         }
 
         var distribution = AnswerMapping.ToDistribution<T>(classify.Probabilities, Name, provider);
-        var confidence = AnswerMapping.Confidence(distribution.Confidence, classify.Confidence);
+        var confidence = AnswerMapping.Confidence(distribution.Confidence, classify.Confidence, classify.Source);
         return new MappedAnswer(new Classification<T>(distribution.Top, distribution, confidence), confidence.Value);
     }
 }
